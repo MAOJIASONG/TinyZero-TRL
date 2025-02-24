@@ -173,4 +173,5 @@ cython_debug/
 # Custom files
 /examples
 /data
+/models
 test.ipynb
