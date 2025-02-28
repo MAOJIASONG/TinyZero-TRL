@@ -1,0 +1,66 @@
+# Model arguments
+model_name_or_path: Qwen/Qwen2.5-1.5B  # deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+model_revision: main
+torch_dtype: bfloat16
+attn_implementation: flash_attention_2
+
+# Data training arguments
+dataset_mixer:
+  agentica-org/DeepScaleR-Preview-Dataset: 1.0
+dataset_splits:
+  - train
+dataset_configs:
+  - default
+truncation_side: left
+preprocessing_num_workers: 10
+
+# GRPO trainer config
+output_dir: outputs/deepscaler-1.5b-8k
+overwrite_output_dir: true
+bf16: true
+# num_train_epochs: 1
+max_steps: 1300
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 64
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+learning_rate: 1.0e-06
+lr_scheduler_type: cosine
+warmup_ratio: 0.0
+# GRPO specific parameters
+beta: 0.001
+max_prompt_length: 1024
+max_completion_length: 8192
+num_generations: 8
+temperature: 0.6
+use_vllm: true
+vllm_device: auto
+vllm_gpu_memory_utilization: 0.85
+reward_funcs:
+  - accuracy
+  - format
+  - print
+reward_weights:
+  - 1.0
+  - 1.0
+  - 0.0
+
+# Logging arguments
+log_level: info
+logging_first_step: true
+log_completions: true
+logging_strategy: steps
+logging_steps: 5
+report_to:
+  - tensorboard
+save_strategy: "no"
+save_total_limit: 1
+seed: 42
+# wandb_entity: grpo
+# wandb_project: countdown-grpo-qwen2.5-3b-base
+
+# Hugging Face Hub 
+push_to_hub: false 
+hub_model_id: deepscaler-1.5b-8k
+hub_strategy: every_save

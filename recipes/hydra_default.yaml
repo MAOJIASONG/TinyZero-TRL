@@ -1,10 +1,8 @@
 defaults:
-  - tasks: rl_config_base.yaml
   - _self_
 
-
 # customized params
-exp_name: trial_1
+exp_name: default_exp
 
 
 # config for hydra

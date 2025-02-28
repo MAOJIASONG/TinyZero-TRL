@@ -171,7 +171,8 @@ cython_debug/
 .pypirc
 
 # Custom files
-/examples
 /data
+/outputs
+/multirun
 /models
 test.ipynb
