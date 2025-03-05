@@ -17,7 +17,11 @@ from transformers.utils.import_utils import _is_package_available
 
 # Use same as transformers.utils.import_utils
 _e2b_available = _is_package_available("e2b")
+_unsloth_available = _is_package_available("unsloth")
 
 
 def is_e2b_available() -> bool:
     return _e2b_available
+
+def is_unsloth_available() -> bool:
+    return _unsloth_available

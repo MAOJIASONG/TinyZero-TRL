@@ -135,7 +135,7 @@ def main(cfg: DictConfig) -> None:
     ###################
     logger.info("*** Loading pretrained model and tokenizer ***")
     # MODEL
-    model, model_kwargs = get_model(training_args, model_args)
+    model, model_kwargs = get_model(data_args, training_args, model_args)
     # TOKENIZER
     tokenizer = get_tokenizer(data_args, training_args, model_args)
     
@@ -151,9 +151,9 @@ def main(cfg: DictConfig) -> None:
         columns_to_keep=None,
     )
     
-    # # split the dataset into train and test
-    # if all(["test" not in split for split in data_args.dataset_splits]):
-    #     raw_datasets = raw_datasets.train_test_split(test_size=0.01)
+    # split the dataset into train and test if requires evaluation
+    if training_args.do_eval and "test" not in raw_datasets:
+        raw_datasets = raw_datasets.train_test_split(test_size=0.1)
     
     logger.info(
         f"Training on the following splits: {[split + ' : ' + str(dset.num_rows) for split, dset in raw_datasets.items()]}"
@@ -171,12 +171,15 @@ def main(cfg: DictConfig) -> None:
     #     prompt = [{"role":"user", "content": example["prompt"]}]
     #     example["prompt"] = tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=False)
     #     return {"prompt": example["prompt"], "chosen": example["chosen"], "rejected": example["rejected"]}
-    from utils.data_utils import format_countdown
+    from utils.data_utils import format_countdown, format_math
     
     with PartialState().main_process_first():
         raw_datasets = raw_datasets.map(
-            format_countdown,
-            fn_kwargs={"tokenizer": tokenizer},
+            format_math,
+            fn_kwargs={
+                "tokenizer": tokenizer,
+                "system_prompt": data_args.system_prompt,
+                "instruction": "Let's think step by step and output the final answer within \\boxed{}.",},
             num_proc=1 if training_args.debug else data_args.preprocessing_num_workers,
             remove_columns=column_names if training_args.remove_unused_columns else None,
             desc="Formatting training datasets"
@@ -205,7 +208,7 @@ def main(cfg: DictConfig) -> None:
         eval_dataset=eval_dataset,
         processing_class=tokenizer,
         reward_funcs=get_reward_functions(training_args),
-        peft_config=get_peft_config(model_args),
+        peft_config=get_peft_config(model_args) if not data_args.use_unsloth else None,
     )
 
 

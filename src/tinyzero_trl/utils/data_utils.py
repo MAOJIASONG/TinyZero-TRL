@@ -71,6 +71,14 @@ class DataArguments:
         default=None,
         metadata={"help": ("The project to store runs under.")},
     )
+    use_unsloth: bool = field(
+        default=False,
+        metadata={"help": ("Whether to use unsloth for training.")},
+    )
+    unsloth_configs: Optional[Dict[str, Any]] = field(
+        default=None,
+        metadata={"help": ("Dictionary of unsloth configuration parameters for training.")},
+    )  # fast_inference
     
     
 def format_countdown(prompt, tokenizer):

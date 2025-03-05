@@ -21,6 +21,13 @@ dataset_configs:
 system_prompt: "You are a helpful assistant. You first thinks about the reasoning process in the mind and then provides the user with the answer."
 truncation_side: left
 preprocessing_num_workers: 10
+use_unsloth: true
+unsloth_configs:
+  max_seq_length: 2048
+  load_in_4bit: true
+  fast_inference: true
+  gpu_memory_utilization: 0.6
+  trust_remote_code: true
 
 # GRPO trainer config
 output_dir: outputs/countdown_qwen2.5-3b_base

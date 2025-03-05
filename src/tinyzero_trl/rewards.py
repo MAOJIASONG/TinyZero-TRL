@@ -43,7 +43,7 @@ def get_reward_functions(training_args):
     """
     
     reward_funcs = [
-        REWARD_FUNCS_REGISTRY[func] or REWARD_FUNCS_REGISTRY_WITH_ARGS[func](training_args)
+        REWARD_FUNCS_REGISTRY.get(func, None) or REWARD_FUNCS_REGISTRY_WITH_ARGS[func](training_args)
         for func in getattr(training_args, "reward_funcs", [])
         if func in REWARD_FUNCS_REGISTRY or func in REWARD_FUNCS_REGISTRY_WITH_ARGS
     ]
