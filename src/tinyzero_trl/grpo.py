@@ -181,6 +181,7 @@ def main(cfg: DictConfig) -> None:
                 "system_prompt": data_args.system_prompt,
                 "instruction": "Let's think step by step and output the final answer within \\boxed{}.",},
             num_proc=1 if training_args.debug else data_args.preprocessing_num_workers,
+            # num_proc=1,
             remove_columns=column_names if training_args.remove_unused_columns else None,
             desc="Formatting training datasets"
         )
