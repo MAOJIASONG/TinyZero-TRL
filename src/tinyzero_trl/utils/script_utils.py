@@ -13,18 +13,18 @@
 # limitations under the License.
 
 import os
-import dataclasses
-
 from dataclasses import dataclass, field
-from typing import Any, List, Literal, Optional, Dict
-from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
+from typing import Any, Dict, List, Literal, Optional
+
+from datasets import (DatasetDict, concatenate_datasets, load_dataset,
+                      load_from_disk)
 from datasets.builder import DatasetGenerationError
 
 
 @dataclass
-class DataArguments:
+class ScriptArguments:
     """
-    Arguments pertaining to what data we are going to input our model for training and eval.
+    Arguments pertaining to the script.
     """
 
     chat_template: Optional[str] = field(default=None, metadata={"help": "The chat template to use."})
@@ -53,7 +53,10 @@ class DataArguments:
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     truncation_side: Optional[str] = field(
-        default=None, metadata={"help": "Truncation side to use for the tokenizer."}
+        default=None, metadata={"help": "Truncation side to use for the processing_class."}
+    )
+    padding_side: Optional[str] = field(
+        default=None, metadata={"help": "Padding side to use for the processing_class."}
     )
     auto_insert_empty_system_msg: bool = field(
         default=True,
@@ -81,7 +84,7 @@ class DataArguments:
     )  # fast_inference
     
     
-def format_countdown(prompt, tokenizer):
+def format_countdown(prompt, processing_class):
     numbers = prompt["nums"]
     target = prompt["target"]
     
@@ -99,30 +102,81 @@ def format_countdown(prompt, tokenizer):
             "content": "Let me solve this step by step.\n<think>"
         }
     ]
-    return {"prompt": tokenizer.apply_chat_template(r1_prefix, tokenize=False, continue_final_message=True), "target": target, "nums": numbers}
+    return {"prompt": processing_class.apply_chat_template(r1_prefix, tokenize=False, continue_final_message=True), "target": target, "nums": numbers}
 
 
-def format_math(example, system_prompt, instruction, tokenizer):
+def format_math(example, system_prompt, instruction, processing_class):
     """Format Math500 dataset examples for training"""
     prompt = []
     if system_prompt is not None:
         prompt.append({"role": "system", "content": system_prompt})
     if instruction is not None:
-        example["problem"] += instruction
+        example["problem"] = instruction.format(problem=example["problem"])
     
     prompt.append({"role": "user", "content": example["problem"]})
     
     return {"prompt": prompt}
 
 
-def maybe_insert_system_message(messages, tokenizer):
+def format_multimodal_base(example, system_prompt, processing_class):
+    """Format multimodal dataset examples for training"""
+    prompt = [
+        {"type": "image"},
+        {"type": "text", "text": system_prompt.format(problem=example["problem"])},
+    ]
+
+    # Check if solution is not already wrapped in <answer> tags
+    if not (example["solution"].strip().startswith("<answer>") and example["solution"].strip().endswith("</answer>")):
+        example["solution"] = f"<answer>{example['solution']}</answer>."
+
+    return {"prompt": processing_class.apply_chat_template(prompt, tokenize=False), "image": example["image"], "solution": example["solution"]}
+
+
+def format_multimodal_instruct(example, system_prompt, processing_class):
+    """Format multimodal dataset examples for training"""
+    prompt = []
+    if system_prompt is not None:
+        prompt.append({
+            "role": "system", 
+            "content": [
+                    {"type": "text", "text": system_prompt}
+                ]
+            }
+        )
+
+    prompt.append(
+        {
+            "role": "user", 
+            "content": [
+                {"type": "image"},
+                {"type": "text", "text": example["problem"]}
+            ]
+        }
+    )
+    prompt.append(
+        {
+            "role": "assistant", 
+            "content": [
+                {"type": "text", "text": "Let me solve this step by step.\n<think>"}
+            ]
+        }
+    )
+
+    # Check if solution is not already wrapped in <answer> tags
+    if not (example["solution"].strip().startswith("<answer>") and example["solution"].strip().endswith("</answer>")):
+        example["solution"] = f"<answer>{example['solution']}</answer>."
+
+    return {"prompt": prompt, "image": example["image"], "solution": example["solution"]}
+
+
+def maybe_insert_system_message(messages, processing_class):
     if messages[0]["role"] == "system":
         return
 
     # chat template can be one of two attributes, we check in order  
-    chat_template = tokenizer.chat_template
+    chat_template = processing_class.chat_template
     if chat_template is None:
-        chat_template = tokenizer.get_chat_template()
+        chat_template = processing_class.get_chat_template()
 
     # confirm the jinja template refers to a system message before inserting
     if "system" in chat_template or "<|im_start|>" in chat_template:
@@ -131,7 +185,7 @@ def maybe_insert_system_message(messages, tokenizer):
 
 def apply_chat_template(
     example,
-    tokenizer,
+    processing_class,
     task: Literal["sft", "generation", "rm", "dpo"],
     auto_insert_empty_system_msg: bool = True,
 ):
@@ -139,8 +193,8 @@ def apply_chat_template(
         messages = example["messages"]
         # We add an empty system message if there is none
         if auto_insert_empty_system_msg:
-            maybe_insert_system_message(messages, tokenizer)
-        example["text"] = tokenizer.apply_chat_template(
+            maybe_insert_system_message(messages, processing_class)
+        example["text"] = processing_class.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True if task == "generation" else False,
@@ -151,11 +205,11 @@ def apply_chat_template(
             rejected_messages = example["rejected"]
             # We add an empty system message if there is none
             if auto_insert_empty_system_msg:
-                maybe_insert_system_message(chosen_messages, tokenizer)
-                maybe_insert_system_message(rejected_messages, tokenizer)
+                maybe_insert_system_message(chosen_messages, processing_class)
+                maybe_insert_system_message(rejected_messages, processing_class)
 
-            example["text_chosen"] = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
-            example["text_rejected"] = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
+            example["text_chosen"] = processing_class.apply_chat_template(chosen_messages, tokenize=False)
+            example["text_rejected"] = processing_class.apply_chat_template(rejected_messages, tokenize=False)
         else:
             raise ValueError(
                 f"Could not format example as dialogue for `rm` task! Require `[chosen, rejected]` keys but found {list(example.keys())}"
@@ -181,11 +235,11 @@ def apply_chat_template(
 
             # Prepend a system message if the first message is not a system message
             if auto_insert_empty_system_msg:
-                maybe_insert_system_message(prompt_messages, tokenizer)
+                maybe_insert_system_message(prompt_messages, processing_class)
 
-            example["text_prompt"] = tokenizer.apply_chat_template(prompt_messages, tokenize=False)
-            example["text_chosen"] = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
-            example["text_rejected"] = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
+            example["text_prompt"] = processing_class.apply_chat_template(prompt_messages, tokenize=False)
+            example["text_chosen"] = processing_class.apply_chat_template(chosen_messages, tokenize=False)
+            example["text_rejected"] = processing_class.apply_chat_template(rejected_messages, tokenize=False)
         else:
             raise ValueError(
                 f"Could not format example as dialogue for `{task}` task! Require either the "
@@ -213,7 +267,7 @@ def is_openai_format(messages: Any) -> bool:
 
 
 def get_datasets(
-    data_config: DataArguments | dict,
+    data_config: ScriptArguments | dict,
     splits: Optional[List[str]] = None,
     configs: Optional[List[str]] = None,
     columns_to_keep: Optional[List[str]] = None,
@@ -223,7 +277,7 @@ def get_datasets(
     Loads one or more datasets with varying training set proportions.
 
     Args:
-        data_config (`DataArguments` or `dict`):
+        data_config (`ScriptArguments` or `dict`):
             Dataset configuration and split proportions.
         splits (`List[str]`, *optional*, defaults to `['train', 'test']`):
             Dataset splits to load and mix. Assumes the splits exist in all datasets and have a `train_` or `test_` prefix.
@@ -238,7 +292,7 @@ def get_datasets(
     Returns
         [`DatasetDict`]: The dataset dictionary containing the loaded datasets.
     """
-    if type(data_config) is DataArguments:
+    if type(data_config) is ScriptArguments:
         # Structure of the config to read the datasets and their mix
         # datasets_mixer:
         #     - 'dataset1': 0.5

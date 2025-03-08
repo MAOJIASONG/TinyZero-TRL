@@ -1,21 +1,21 @@
 # import debugpy; debugpy.connect(('localhost', 9501))
-import os
-import random
-import re
-import colorlog
 import datetime
 import json
 import math
-import tiktoken
+import os
+import random
+import re
 import string
+from typing import Dict, List
 
-from typing import Dict
+import colorlog
+import tiktoken
 from latex2sympy2_extended import NormalizationConfig
-from math_verify import LatexExtractionConfig, parse, verify
-
+from math_verify import LatexExtractionConfig, ExprExtractionConfig, parse, verify
 from openai import OpenAI
-from utils.system_prompts import ORM_PROMPT
-from utils import is_e2b_available
+
+from tinyzero_trl.utils import is_e2b_available
+from tinyzero_trl.utils.system_prompts import ORM_PROMPT
 
 if is_e2b_available():
     from dotenv import load_dotenv
@@ -115,8 +115,9 @@ def evaluate_answer_similarity(completions, solution, **kwargs):
         return white_space_fix(remove_articles(remove_punc(lower(s))))
     
     load_reward_model()
-        
-    contents = [c[0]["content"] for c in completions]
+    contents = completions
+    if isinstance(completions[0], List):
+        contents = [c[0]["content"] for c in completions]
     rewards = []
     
     for content, sol in zip(contents, solution):
@@ -147,22 +148,27 @@ def evaluate_answer_similarity(completions, solution, **kwargs):
 
 def accuracy_reward(completions, solution, **kwargs):
     """Reward function that checks if the completion is the same as the ground truth."""
-    contents = [c[0]["content"] for c in completions]
+    contents = completions
+    if isinstance(completions[0], List):
+        contents = [c[0]["content"] for c in completions]
+        
     rewards = []
     
     for content, sol in zip(contents, solution):
-        gold_parsed = parse(sol, extraction_mode="first_match", extraction_config=[LatexExtractionConfig()])
+        # gold_parsed = parse(sol, extraction_mode="first_match", extraction_config=[LatexExtractionConfig(), ExprExtractionConfig()])
+        gold_parsed = parse(sol, extraction_mode="first_match")
         if not gold_parsed:
             logger.warning(f"Failed to parse gold solution: {solution}")
-            rewards.append(1.0)
+            rewards.append(0.25)
             continue
 
         try:
-            answer_parsed = parse(content, extraction_config=[LatexExtractionConfig(
-                normalization_config=NormalizationConfig(
-                    nits=False, malformed_operators=False, basic_latex=True, equations=True, boxed="all", units=True),
-                boxed_match_priority=0, try_extract_without_anchor=False
-            )], extraction_mode="first_match")
+            # answer_parsed = parse(content, extraction_config=[LatexExtractionConfig(
+            #     normalization_config=NormalizationConfig(
+            #         nits=False, malformed_operators=False, basic_latex=True, equations=True, boxed="all", units=True),
+            #     boxed_match_priority=0, try_extract_without_anchor=False
+            # ), ExprExtractionConfig()], extraction_mode="first_match")
+            answer_parsed = parse(content, extraction_mode="first_match")
 
             rewards.append(float(verify(answer_parsed, gold_parsed)))
         except Exception as e:
@@ -174,8 +180,11 @@ def accuracy_reward(completions, solution, **kwargs):
 
 def format_reward(completions, **kwargs):
     """Reward function that checks if the reasoning process is enclosed within <think> and </think> tags, while the final answer is enclosed within <answer> and </answer> tags."""
-    pattern = r"^<think>\n.*?\n</think>\n<answer>\n.*?\n</answer>$"
-    completion_contents = [c[0]["content"] for c in completions]
+    # hard_pattern = r"^<think>\n.*?\n</think>\n<answer>\n.*?\n</answer>$"
+    pattern = r"<think>.*?</think>\s*<answer>.*?</answer>"
+    completion_contents = completions
+    if isinstance(completions[0], List):
+        completion_contents = [c[0]["content"] for c in completions]
     matches = [re.match(pattern, content, re.DOTALL | re.MULTILINE) for content in completion_contents]
     return [1.0 if match else 0.0 for match in matches]
 
@@ -197,8 +206,9 @@ def tag_count_reward(completions, **kwargs) -> list[float]:
         if text.count("\n</answer>") == 1:
             count += 0.25
         return count
-
-    contents = [c[0]["content"] for c in completions]
+    contents = completions
+    if isinstance(completions[0], List):
+        contents = [c[0]["content"] for c in completions]
     return [count_tags(c) for c in contents]
 
 
@@ -212,7 +222,9 @@ def reasoning_steps_reward(completions, **kwargs):
         First,|Second,|Next,|Finally, - matches transition words
     """
     pattern = r"(Step \d+:|^\d+\.|\n-|\n\*|First,|Second,|Next,|Finally,)"
-    completion_contents = [c[0]["content"] for c in completions]
+    completion_contents = completions
+    if isinstance(completions[0], List):
+        completion_contents = [c[0]["content"] for c in completions]
     matches = [len(re.findall(pattern, content)) for content in completion_contents]
 
     # Magic nubmer 3 to encourage 3 steps and more, otherwise partial reward
@@ -233,7 +245,9 @@ def len_reward(completions: list[Dict[str, str]], solution: list[str], **kwargs)
         - For correct answers: reward = 0.5 - (len - min_len)/(max_len - min_len)
         - For incorrect answers: reward = min(0, 0.5 - (len - min_len)/(max_len - min_len))
     """
-    contents = [c[0]["content"] for c in completions]
+    contents = completions
+    if isinstance(completions[0], List):
+        contents = [c[0]["content"] for c in completions]
 
     # First check correctness of answers
     correctness = []
@@ -392,8 +406,9 @@ def get_repetition_penalty_reward(ngram_size: int, max_penalty: float):
         Args:
             completions: List of model completions
         """
-
-        contents = [c[0]["content"] for c in completions]
+        contents = completions
+        if isinstance(completions[0], List):
+            contents = [c[0]["content"] for c in completions]
         rewards = []
         for completion in contents:
             if completion == "":

@@ -1,38 +1,23 @@
 # import debugpy; debugpy.connect(("localhost", 9501))
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-import hydra
 import os
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-import sys
-import datasets
-import torch
 import random
-
-
-from omegaconf import  OmegaConf, DictConfig
 from dataclasses import dataclass, field
-from transformers.trainer_utils import set_seed, get_last_checkpoint
-from transformers import (
-    HfArgumentParser
-)
+
+import datasets
+import hydra
+import torch
 from accelerate.state import PartialState
-from trl import (
-    GRPOConfig,
-    GRPOTrainer,
-    ModelConfig,
-    get_peft_config,
-)
+from omegaconf import DictConfig, OmegaConf
+from transformers import HfArgumentParser
+from transformers.trainer_utils import get_last_checkpoint, set_seed
+from trl import GRPOConfig, get_peft_config
 from trl.trainer.utils import empty_cache
-from utils import (
-    setup_logger,
-    is_adapter_model,
-    get_current_device,
-    get_datasets,
-    DataArguments,
-    get_tokenizer,
-    get_model
-)
-from rewards import get_reward_functions
+from tinyzero_trl.rewards import get_reward_functions
+from tinyzero_trl.trainer import GRPOTrainer
+from tinyzero_trl.utils import (ScriptArguments, ALLModelConfig, get_datasets,
+                    get_model, get_processing_class, setup_logger)
 
 
 @dataclass
@@ -109,8 +94,8 @@ def main(cfg: DictConfig) -> None:
     cfg = OmegaConf.to_container(cfg, resolve=True)
     # print(cfg)
     
-    parser = HfArgumentParser((DataArguments, GRPOTrainingArguments, ModelConfig))
-    data_args, training_args, model_args = parser.parse_dict(cfg, allow_extra_keys=True)
+    parser = HfArgumentParser((ScriptArguments, GRPOTrainingArguments, ALLModelConfig))
+    script_args, training_args, model_args = parser.parse_dict(cfg, allow_extra_keys=True)
     
     # Set seed for reproducibility
     set_seed(training_args.seed)
@@ -126,18 +111,18 @@ def main(cfg: DictConfig) -> None:
         + f" distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.bf16}"
     )
     logger.info(f"Model parameters {model_args}")
-    logger.info(f"Data parameters {data_args}")
+    logger.info(f"Data parameters {script_args}")
     logger.info(f"Training/evaluation parameters {training_args}")
 
 
     ###################
-    # Model & Tokenizer
+    # Model & processing_class
     ###################
-    logger.info("*** Loading pretrained model and tokenizer ***")
+    logger.info("*** Loading pretrained model and processing_class ***")
     # MODEL
-    model, model_kwargs = get_model(data_args, training_args, model_args)
-    # TOKENIZER
-    tokenizer = get_tokenizer(data_args, training_args, model_args)
+    model, model_kwargs = get_model(script_args, training_args, model_args)
+    # processing_class
+    processing_class = get_processing_class(script_args, training_args, model_args)
     
     
     ###############
@@ -145,9 +130,9 @@ def main(cfg: DictConfig) -> None:
     ###############
     logger.info("*** Loading datasets ***")
     raw_datasets = get_datasets(
-        data_args,
-        splits=data_args.dataset_splits,
-        configs=data_args.dataset_configs,
+        script_args,
+        splits=script_args.dataset_splits,
+        configs=script_args.dataset_configs,
         columns_to_keep=None,
     )
     
@@ -167,27 +152,27 @@ def main(cfg: DictConfig) -> None:
     #################
     # Format Dataset
     #################
-    # def formatting_datasets(example, tokenizer):
+    # def formatting_datasets(example, processing_class):
     #     prompt = [{"role":"user", "content": example["prompt"]}]
-    #     example["prompt"] = tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=False)
+    #     example["prompt"] = processing_class.apply_chat_template(prompt, tokenize=False, add_generation_prompt=False)
     #     return {"prompt": example["prompt"], "chosen": example["chosen"], "rejected": example["rejected"]}
-    from utils.data_utils import format_countdown, format_math
+    from tinyzero_trl.utils.script_utils import format_countdown, format_math, format_multimodal_instruct, format_multimodal_base
     
     with PartialState().main_process_first():
         raw_datasets = raw_datasets.map(
-            format_math,
+            format_multimodal_base,
             fn_kwargs={
-                "tokenizer": tokenizer,
-                "system_prompt": data_args.system_prompt,
-                "instruction": "Let's think step by step and output the final answer within \\boxed{}.",},
-            num_proc=1 if training_args.debug else data_args.preprocessing_num_workers,
-            # num_proc=1,
-            remove_columns=column_names if training_args.remove_unused_columns else None,
+                "processing_class": processing_class,
+                "system_prompt": script_args.system_prompt,
+            },
+            num_proc=1 if training_args.debug else script_args.preprocessing_num_workers,
+            remove_columns=column_names,
             desc="Formatting training datasets"
         )
     
     # Log a few random samples from the training set:
     if PartialState().is_main_process:
+        print(raw_datasets)
         for index in random.sample(range(len(raw_datasets["train"])), 2):
             logger.info(f"Prompt sample {index} of the raw training set:\n\n{raw_datasets['train'][index]['prompt']}")
 
@@ -207,10 +192,15 @@ def main(cfg: DictConfig) -> None:
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        processing_class=tokenizer,
+        processing_class=processing_class,
         reward_funcs=get_reward_functions(training_args),
-        peft_config=get_peft_config(model_args) if not data_args.use_unsloth else None,
+        peft_config=get_peft_config(model_args) if not script_args.use_unsloth else None,
     )
+    # Add multimodal model support
+    if model_args.freeze_vision:
+        trainer.model.visual.requires_grad_(requires_grad=False)
+    elif model_args.freeze_llm:
+        trainer.model.model.requires_grad_(requires_grad=False)
 
 
     ###############
