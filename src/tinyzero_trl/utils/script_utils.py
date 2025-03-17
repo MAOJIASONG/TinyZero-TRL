@@ -82,7 +82,50 @@ class ScriptArguments:
         default=None,
         metadata={"help": ("Dictionary of unsloth configuration parameters for training.")},
     )  # fast_inference
-    
+
+
+from qwen_vl_utils import process_vision_info
+def format_vlm_sft(example, processing_class, system_prompt):
+    example = example['messages']
+    messages = []
+    if system_prompt or ("system" in example):
+        messages.append({
+            "role": "system",
+            "content": [{"type": "text", "text": system_prompt or example["system"]}],
+        })
+    else:
+        SYSTEM_PROMPT = (
+    "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. The assistant "
+    "first thinks about the reasoning process in the mind and then provides the user with the answer. The reasoning "
+    "process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., "
+    "<think> reasoning process here </think><answer> answer here </answer>"
+        )
+        messages.append({
+            "role": "system",
+            "content": [{"type": "text", "text": SYSTEM_PROMPT}],
+        })
+
+    thinking = example.get("thinking")
+    problem = example.get("problem")
+    solution = example.get("solution")
+    image = example.get("image")
+    messages.append({
+        "role": "user",
+        "content": [
+            {"type": "text", "text": problem},
+            {"type": "image", "image": image},
+            ]
+    })
+    messages.append({
+        "role": "assistant",
+        "content": f"{thinking}\n\n{solution}",
+    })
+
+    texts = processing_class.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    image_inputs, video_inputs = process_vision_info(example)
+
+    return {"texts": texts, "images": image_inputs, "videos": video_inputs}
+
     
 def format_countdown(prompt, processing_class):
     numbers = prompt["nums"]

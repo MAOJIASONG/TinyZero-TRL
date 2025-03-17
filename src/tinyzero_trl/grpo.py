@@ -1,23 +1,23 @@
 # import debugpy; debugpy.connect(("localhost", 9501))
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import os
+
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 import random
 from dataclasses import dataclass, field
 
-import datasets
 import hydra
-import torch
 from accelerate.state import PartialState
 from omegaconf import DictConfig, OmegaConf
 from transformers import HfArgumentParser
 from transformers.trainer_utils import get_last_checkpoint, set_seed
 from trl import GRPOConfig, get_peft_config
 from trl.trainer.utils import empty_cache
+
 from tinyzero_trl.rewards import get_reward_functions
 from tinyzero_trl.trainer import GRPOTrainer
-from tinyzero_trl.utils import (ScriptArguments, ALLModelConfig, get_datasets,
-                    get_model, get_processing_class, setup_logger)
+from tinyzero_trl.utils import (ALLModelConfig, ScriptArguments, get_datasets,
+                                get_model, get_processing_class, setup_logger)
 
 
 @dataclass
@@ -156,7 +156,9 @@ def main(cfg: DictConfig) -> None:
     #     prompt = [{"role":"user", "content": example["prompt"]}]
     #     example["prompt"] = processing_class.apply_chat_template(prompt, tokenize=False, add_generation_prompt=False)
     #     return {"prompt": example["prompt"], "chosen": example["chosen"], "rejected": example["rejected"]}
-    from tinyzero_trl.utils.script_utils import format_countdown, format_math, format_multimodal_instruct, format_multimodal_base
+    from tinyzero_trl.utils.script_utils import (format_countdown, format_math,
+                                                 format_multimodal_base,
+                                                 format_multimodal_instruct)
     
     with PartialState().main_process_first():
         raw_datasets = raw_datasets.map(
@@ -254,4 +256,3 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     main()
-    

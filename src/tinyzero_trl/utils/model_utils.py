@@ -102,17 +102,17 @@ def get_processing_class(
     )
     # Add multimodal model support
     if is_multimodal_model(model_args.model_name_or_path):
-        if "qwen" in model_args.model_name_or_path.lower():
+        if "Qwen2.5-VL" in model_args.model_name_or_path or "Qwen2.5-VL" in model_args.model_name_or_path:
             processing_class.image_processor.max_pixels = model_args.max_pixels
             processing_class.image_processor.min_pixels = model_args.min_pixels
             processing_class.image_processor.patch_size = model_args.patch_size
 
-        if processing_class.tokenizer.pad_token_id is None:
+        if hasattr(processing_class.tokenizer, "pad_token_id") and processing_class.tokenizer.pad_token_id is None:
             processing_class.tokenizer.pad_token_id = processing_class.tokenizer.unk_token_id
         processing_class.pad_token_id = processing_class.tokenizer.pad_token_id
         processing_class.eos_token_id = processing_class.tokenizer.eos_token_id
     else:
-        if processing_class.pad_token_id is None:
+        if hasattr(processing_class, "pad_token_id") and processing_class.pad_token_id is None:
             processing_class.pad_token_id = processing_class.unk_token_id
     # Set reasonable default for models without max length
     # if processing_class.model_max_length > 100_000:
@@ -122,12 +122,6 @@ def get_processing_class(
         processing_class.chat_template = script_args.chat_template
     elif auto_set_chat_template and processing_class.chat_template is None:
         processing_class.chat_template = DEFAULT_CHAT_TEMPLATE
-
-    # Add multimodal model support
-    if "Qwen2.5-VL" in model_args.model_name_or_path or "Qwen2.5-VL" in model_args.model_name_or_path:
-        processing_class.image_processor.max_pixels = model_args.max_pixels
-        processing_class.image_processor.min_pixels = model_args.min_pixels
-        processing_class.image_processor.patch_size = model_args.patch_size
     
     return processing_class
 
