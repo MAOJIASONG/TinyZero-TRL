@@ -14,7 +14,7 @@ torchvision==0.20.1
 torchaudio==2.5.1
 # --index-url https://download.pytorch.org/whl/cu118
 transformers==4.49.0
-trl @ git+https://github.com/huggingface/trl.git@e3244d2d096ff1e2e248c931d06d39e165e20623
+trl @ git+https://github.com/huggingface/trl.git@07cfe1677e552b7d5c92b7740e5b2f0b057661d8
 wandb>=0.19.1
 notebook
 pandas
