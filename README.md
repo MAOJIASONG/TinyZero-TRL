@@ -5,6 +5,7 @@ TinyZero-TRL is designed to provide an easy-to-use framework for reproducing R1-
 ## News
 
 - Support multimodal training for GRPO with number of iterations of $\mu$.
+- scale for multi-node and 70B training.
 
 ## Installation
 
